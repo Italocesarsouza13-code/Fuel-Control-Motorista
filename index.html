@@ -137,15 +137,6 @@ body{
   display:flex;align-items:center;justify-content:center;gap:6px;
 }
 
-/* OCR STATUS */
-.ocr-status{
-  display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;
-  font-size:13px;margin-top:12px;
-}
-.ocr-status.loading{background:var(--accent-bg);border:1px solid var(--accent-border);color:var(--accent2)}
-.ocr-status.success{background:var(--green-bg);border:1px solid rgba(34,197,94,0.3);color:var(--green)}
-.ocr-status.error{background:var(--amber-bg);border:1px solid rgba(245,158,11,0.3);color:var(--amber)}
-.spinner{width:16px;height:16px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* CONFIRM SUMMARY */
@@ -236,12 +227,14 @@ body{
     <div class="steps"><div class="step-dot done"></div><div class="step-dot active"></div><div class="step-dot"></div><div class="step-dot"></div></div>
     <div class="card card-pad">
       <div class="screen-title">Qual veículo?</div>
-      <div class="screen-sub">Selecione a placa do veículo que você está abastecendo agora.</div>
-      <div class="search-wrap">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="veic-search" placeholder="Buscar placa ou modelo…" oninput="renderVeicList()">
+      <div class="screen-sub">Digite a placa do veículo que você está abastecendo agora.</div>
+      <div class="field">
+        <label>Placa *</label>
+        <input type="text" id="veic-search" class="cpf-input" placeholder="ABC-1234" maxlength="8" autocomplete="off" autocapitalize="characters" oninput="onPlacaInput(this)">
+        <div class="field-error" id="veic-error"></div>
       </div>
-      <div id="veic-list"></div>
+      <div id="veic-suggest-wrap"></div>
+      <div id="veic-confirm-wrap"></div>
     </div>
   </div>
 
@@ -250,7 +243,7 @@ body{
     <div class="steps"><div class="step-dot done"></div><div class="step-dot done"></div><div class="step-dot active"></div><div class="step-dot"></div></div>
     <div class="card card-pad">
       <div class="screen-title">Foto do cupom</div>
-      <div class="screen-sub">Tire uma foto nítida do cupom fiscal do abastecimento. O sistema vai ler os dados automaticamente.</div>
+      <div class="screen-sub">Tire uma foto nítida do cupom fiscal do abastecimento para anexar ao registro.</div>
 
       <div class="photo-area" id="photo-area" onclick="triggerPhotoInput()">
         <svg class="photo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -258,8 +251,6 @@ body{
         <div class="photo-sub">ou escolher da galeria</div>
       </div>
       <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelected(this)">
-
-      <div id="ocr-status-wrap"></div>
     </div>
   </div>
 
@@ -268,11 +259,15 @@ body{
     <div class="steps"><div class="step-dot done"></div><div class="step-dot done"></div><div class="step-dot done"></div><div class="step-dot active"></div></div>
     <div class="card card-pad" style="margin-bottom:14px">
       <div class="screen-title">Confirme os dados</div>
-      <div class="screen-sub" id="form-sub">Revise as informações lidas do cupom e ajuste se necessário.</div>
+      <div class="screen-sub" id="form-sub">Preencha as informações do abastecimento.</div>
 
       <div class="field">
         <label>Posto / Fornecedor *</label>
-        <input type="text" id="form-posto" placeholder="Nome do posto">
+        <select id="form-posto" onchange="toggleNovoPostoField()"></select>
+      </div>
+      <div class="field hidden" id="form-posto-novo-wrap">
+        <label>Nome do novo posto *</label>
+        <input type="text" id="form-posto-novo" placeholder="Digite o nome do posto">
       </div>
       <div class="field-row">
         <div class="field">
@@ -391,7 +386,7 @@ const STATE={
   veiculoSelecionado:null,
   fotoBase64:null,
   fotoMediaType:null,
-  ocrData:null,
+  postos:[],
 };
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
@@ -439,7 +434,10 @@ function goToLogin(){
   document.getElementById('btn-logout').classList.add('hidden');
   document.getElementById('topbar-sub').textContent='App do Motorista';
 }
-function goToVeiculo(){showScreen('veiculo');renderVeicList();}
+function goToVeiculo(){
+  showScreen('veiculo');
+  document.getElementById('veic-search').focus();
+}
 function goToFoto(){
   if(!STATE.veiculoSelecionado){toast('Selecione um veículo.',true);return;}
   showScreen('foto');
@@ -484,9 +482,13 @@ async function doLogin(){
 
     STATE.motorista=found;
 
-    // Carrega veículos
-    const veics=await db('veiculos?select=*&order=placa');
+    // Carrega veículos e postos
+    const [veics,postos]=await Promise.all([
+      db('veiculos?select=*&order=placa'),
+      db('postos?select=*&order=nome'),
+    ]);
     STATE.veiculos=veics;
+    STATE.postos=postos;
 
     hideLoading();
     document.getElementById('topbar-sub').textContent=found.nome.split(' ').slice(0,2).join(' ');
@@ -504,45 +506,99 @@ function logout(){
   STATE.motorista=null;
   STATE.veiculoSelecionado=null;
   STATE.fotoBase64=null;
-  STATE.ocrData=null;
+  STATE.postos=[];
   document.getElementById('login-cpf').value='';
   goToLogin();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SELEÇÃO DE VEÍCULO
+// SELEÇÃO DE VEÍCULO — DIGITAÇÃO DE PLACA
 // ═══════════════════════════════════════════════════════════════════════════
 const AVATAR_COLORS=['#6c63ff','#22c55e','#f59e0b','#14b8a6','#3b82f6','#ec4899','#8b5cf6','#f97316'];
 function hashColor(id){let h=0;for(const c of(id||'x'))h=(h*31+c.charCodeAt(0))&0xffffffff;return AVATAR_COLORS[Math.abs(h)%AVATAR_COLORS.length];}
 
-function renderVeicList(){
-  const q=(document.getElementById('veic-search').value||'').toLowerCase().trim();
-  const filtered=STATE.veiculos.filter(v=>!q||v.placa.toLowerCase().includes(q)||(v.modelo||'').toLowerCase().includes(q));
+function normalizaPlaca(s){return (s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
 
-  const listEl=document.getElementById('veic-list');
-  if(!filtered.length){
-    listEl.innerHTML='<div style="text-align:center;color:var(--text3);padding:24px;font-size:13px">Nenhum veículo encontrado.</div>';
+function formatPlacaInput(input){
+  // Formata visualmente como ABC-1234 ou ABC1D23 (Mercosul) mantendo só letras/números
+  let raw=normalizaPlaca(input.value).slice(0,7);
+  let formatted=raw;
+  if(raw.length>3)formatted=raw.slice(0,3)+'-'+raw.slice(3);
+  input.value=formatted;
+  return raw;
+}
+
+function onPlacaInput(input){
+  const raw=formatPlacaInput(input);
+  STATE.veiculoSelecionado=null;
+  document.getElementById('btn-veiculo-continuar').disabled=true;
+  document.getElementById('veic-error').style.display='none';
+  document.getElementById('veic-confirm-wrap').innerHTML='';
+
+  const suggestWrap=document.getElementById('veic-suggest-wrap');
+
+  if(raw.length<3){
+    suggestWrap.innerHTML='';
     return;
   }
 
-  listEl.innerHTML=filtered.map(v=>{
-    const col=hashColor(v.id);
-    const sel=STATE.veiculoSelecionado?.id===v.id;
-    return`<div class="veic-pick ${sel?'selected':''}" onclick="selecionarVeiculo('${v.id}')">
+  // Match exato primeiro
+  const exact=STATE.veiculos.find(v=>normalizaPlaca(v.placa)===raw);
+  if(exact){
+    suggestWrap.innerHTML='';
+    confirmarVeiculoEncontrado(exact);
+    return;
+  }
+
+  // Sugestões parciais (placa começa com o que foi digitado)
+  const sugestoes=STATE.veiculos.filter(v=>normalizaPlaca(v.placa).startsWith(raw)).slice(0,5);
+
+  if(sugestoes.length){
+    suggestWrap.innerHTML=`
+      <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Sugestões</div>
+      ${sugestoes.map(v=>{
+        const col=hashColor(v.id);
+        return`<div class="veic-pick" onclick="escolherSugestao('${v.id}')">
+          <div class="veic-pick-avatar" style="background:${col}22"><svg viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="1.8"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v3h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></div>
+          <div class="veic-pick-info">
+            <span class="placa-badge-lg">${v.placa}</span>
+            <div class="veic-pick-modelo">${[v.marca,v.modelo].filter(Boolean).join(' ')||'Sem modelo cadastrado'}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    `;
+  } else if(raw.length>=7){
+    suggestWrap.innerHTML='';
+    document.getElementById('veic-error').textContent='Placa não encontrada na frota. Verifique se digitou corretamente.';
+    document.getElementById('veic-error').style.display='block';
+  } else {
+    suggestWrap.innerHTML='';
+  }
+}
+
+function escolherSugestao(id){
+  const v=STATE.veiculos.find(x=>x.id===id);
+  document.getElementById('veic-search').value=v.placa;
+  document.getElementById('veic-suggest-wrap').innerHTML='';
+  confirmarVeiculoEncontrado(v);
+}
+
+function confirmarVeiculoEncontrado(v){
+  STATE.veiculoSelecionado=v;
+  document.getElementById('btn-veiculo-continuar').disabled=false;
+  document.getElementById('veic-error').style.display='none';
+
+  const col=hashColor(v.id);
+  document.getElementById('veic-confirm-wrap').innerHTML=`
+    <div class="veic-pick selected" style="cursor:default" onclick="event.stopPropagation()">
       <div class="veic-pick-avatar" style="background:${col}22"><svg viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="1.8"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v3h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></div>
       <div class="veic-pick-info">
         <span class="placa-badge-lg">${v.placa}</span>
         <div class="veic-pick-modelo">${[v.marca,v.modelo].filter(Boolean).join(' ')||'Sem modelo cadastrado'}</div>
       </div>
       <div class="veic-pick-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
-    </div>`;
-  }).join('');
-}
-
-function selecionarVeiculo(id){
-  STATE.veiculoSelecionado=STATE.veiculos.find(v=>v.id===id);
-  document.getElementById('btn-veiculo-continuar').disabled=false;
-  renderVeicList();
+    </div>
+  `;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -590,7 +646,6 @@ function handlePhotoSelected(input){
       `;
 
       document.getElementById('btn-foto-continuar').disabled=false;
-      processarOCR(base64,'image/jpeg');
     };
     img.src=e.target.result;
   };
@@ -600,7 +655,6 @@ function handlePhotoSelected(input){
 function removerFoto(){
   STATE.fotoBase64=null;
   STATE.fotoMediaType=null;
-  STATE.ocrData=null;
   const area=document.getElementById('photo-area');
   area.classList.remove('has-photo');
   area.innerHTML=`
@@ -610,63 +664,10 @@ function removerFoto(){
   `;
   document.getElementById('photo-input').value='';
   document.getElementById('btn-foto-continuar').disabled=true;
-  document.getElementById('ocr-status-wrap').innerHTML='';
-}
-
-async function processarOCR(base64,mediaType){
-  const statusWrap=document.getElementById('ocr-status-wrap');
-  statusWrap.innerHTML=`<div class="ocr-status loading"><div class="spinner"></div><span>Lendo dados do cupom com IA…</span></div>`;
-
-  try{
-    const prompt=`Você está analisando a foto de um cupom fiscal de abastecimento de combustível (diesel, gasolina, etc) em um posto brasileiro.
-
-Extraia EXATAMENTE estes campos do cupom, se estiverem visíveis:
-- nome_posto: nome do estabelecimento/posto/fornecedor
-- data: data da venda no formato YYYY-MM-DD
-- combustivel: tipo de combustível (ex: "Diesel S-10", "Diesel Comum", "Arla 32", "Gasolina Comum", "GNV"). Se não conseguir identificar exatamente, tente inferir pelo contexto (preço típico de diesel é diferente de gasolina).
-- litros: quantidade em litros (número decimal)
-- preco_litro: preço por litro em reais (número decimal)
-- valor_total: valor total pago em reais (número decimal)
-
-Responda APENAS com um JSON válido, sem texto antes ou depois, sem markdown, no formato:
-{"nome_posto":"...","data":"YYYY-MM-DD","combustivel":"...","litros":0.0,"preco_litro":0.0,"valor_total":0.0}
-
-Se algum campo não estiver legível ou visível, use null para esse campo. Não invente valores.`;
-
-    const response=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-6',
-        max_tokens:500,
-        messages:[{
-          role:'user',
-          content:[
-            {type:'image',source:{type:'base64',media_type:mediaType,data:base64}},
-            {type:'text',text:prompt}
-          ]
-        }]
-      })
-    });
-
-    const data=await response.json();
-    const textBlock=(data.content||[]).find(c=>c.type==='text');
-    if(!textBlock)throw new Error('Resposta vazia da IA');
-
-    let jsonText=textBlock.text.trim().replace(/```json|```/g,'').trim();
-    const parsed=JSON.parse(jsonText);
-
-    STATE.ocrData=parsed;
-    statusWrap.innerHTML=`<div class="ocr-status success"><svg style="width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg><span>Dados lidos com sucesso! Confira na próxima tela.</span></div>`;
-  }catch(e){
-    console.error('Erro OCR:',e);
-    STATE.ocrData=null;
-    statusWrap.innerHTML=`<div class="ocr-status error"><svg style="width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>Não consegui ler automaticamente. Preencha os dados manualmente na próxima tela.</span></div>`;
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FORMULÁRIO — preenchido pelo OCR, editável pelo motorista
+// FORMULÁRIO — posto selecionado de uma lista, editável pelo motorista
 // ═══════════════════════════════════════════════════════════════════════════
 function calcKmAnterior(veicId){
   // Busca último km registrado para este veículo (via API, simplificado: usa kmInicial se não houver abast.)
@@ -675,26 +676,29 @@ function calcKmAnterior(veicId){
     .catch(()=>null);
 }
 
+function toggleNovoPostoField(){
+  const sel=document.getElementById('form-posto');
+  const wrap=document.getElementById('form-posto-novo-wrap');
+  wrap.classList.toggle('hidden',sel.value!=='__novo__');
+}
+
 let formPopulated=false;
 function populateForm(){
-  const o=STATE.ocrData||{};
-  document.getElementById('form-posto').value=o.nome_posto||'';
-  if(o.combustivel){
-    const select=document.getElementById('form-comb');
-    const opts=[...select.options].map(x=>x.value);
-    // tenta match aproximado
-    const match=opts.find(x=>x.toLowerCase()===String(o.combustivel).toLowerCase())||
-                 opts.find(x=>String(o.combustivel).toLowerCase().includes(x.toLowerCase().split(' ')[0]));
-    if(match)select.value=match;
+  // Popula select de postos
+  const selPosto=document.getElementById('form-posto');
+  const curPosto=selPosto.value;
+  if(STATE.postos.length){
+    selPosto.innerHTML='<option value="">— Selecione o posto —</option>'+
+      STATE.postos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('')+
+      '<option value="__novo__">+ Outro posto (digitar nome)</option>';
+  } else {
+    selPosto.innerHTML='<option value="__novo__">+ Outro posto (digitar nome)</option>';
   }
-  document.getElementById('form-data').value=o.data||today();
-  document.getElementById('form-litros').value=o.litros??'';
-  document.getElementById('form-preco').value=o.preco_litro??'';
-  document.getElementById('form-total').value=o.valor_total??(o.litros&&o.preco_litro?(o.litros*o.preco_litro).toFixed(2):'');
+  if(curPosto)selPosto.value=curPosto;
+  toggleNovoPostoField();
 
-  document.getElementById('form-sub').textContent=STATE.ocrData
-    ?'Dados lidos automaticamente do cupom. Confira e ajuste se necessário.'
-    :'Não foi possível ler o cupom automaticamente. Preencha os dados manualmente.';
+  document.getElementById('form-data').value=document.getElementById('form-data').value||today();
+  document.getElementById('form-sub').textContent='Preencha as informações do abastecimento.';
 
   // Hodômetro anterior
   if(STATE.veiculoSelecionado){
@@ -727,7 +731,8 @@ goToForm=function(){
 // SALVAR ABASTECIMENTO
 // ═══════════════════════════════════════════════════════════════════════════
 async function salvarAbastecimento(){
-  const posto=document.getElementById('form-posto').value.trim();
+  const postoSelVal=document.getElementById('form-posto').value;
+  const postoNovoNome=document.getElementById('form-posto-novo').value.trim();
   const comb=document.getElementById('form-comb').value;
   const data=document.getElementById('form-data').value;
   const litros=parseFloat(document.getElementById('form-litros').value);
@@ -737,7 +742,8 @@ async function salvarAbastecimento(){
   const kmAnt=parseInt(document.getElementById('form-km-ant').value)||null;
   const obs=document.getElementById('form-obs').value.trim();
 
-  if(!posto){toast('Informe o nome do posto.',true);return;}
+  if(!postoSelVal){toast('Selecione o posto.',true);return;}
+  if(postoSelVal==='__novo__'&&!postoNovoNome){toast('Digite o nome do novo posto.',true);return;}
   if(!litros||litros<=0){toast('Informe os litros corretamente.',true);return;}
   if(!preco||preco<=0){toast('Informe o preço por litro.',true);return;}
   if(!data){toast('Informe a data.',true);return;}
@@ -747,18 +753,27 @@ async function salvarAbastecimento(){
   showLoading('Salvando abastecimento…');
 
   try{
-    // 1. Encontra ou cria o posto pelo nome
-    let postoId=null;
-    const postosExistentes=await db(`postos?select=id,nome`);
-    const postoMatch=postosExistentes.find(p=>p.nome.toLowerCase().trim()===posto.toLowerCase().trim());
-    if(postoMatch){
-      postoId=postoMatch.id;
+    // 1. Resolve o posto: existente (select) ou novo (criar)
+    let postoId=postoSelVal;
+    let postoNomeFinal='';
+
+    if(postoSelVal==='__novo__'){
+      const postosExistentes=await db(`postos?select=id,nome`);
+      const match=postosExistentes.find(p=>p.nome.toLowerCase().trim()===postoNovoNome.toLowerCase().trim());
+      if(match){
+        postoId=match.id;
+        postoNomeFinal=match.nome;
+      }else{
+        const novoId=uid();
+        await db('postos',{method:'POST',body:JSON.stringify({
+          id:novoId,nome:postoNovoNome,bandeira:'Sem bandeira',tel:'',end:'',cidade:'',estado:'',fuels:[comb]
+        })});
+        postoId=novoId;
+        postoNomeFinal=postoNovoNome;
+      }
     }else{
-      const novoId=uid();
-      await db('postos',{method:'POST',body:JSON.stringify({
-        id:novoId,nome:posto,bandeira:'Sem bandeira',tel:'',end:'',cidade:'',estado:'',fuels:[comb]
-      })});
-      postoId=novoId;
+      const p=STATE.postos.find(x=>x.id===postoSelVal);
+      postoNomeFinal=p?p.nome:'';
     }
 
     // 2. Calcula média se possível
@@ -782,7 +797,7 @@ async function salvarAbastecimento(){
 
     hideLoading();
     document.getElementById('sucesso-detalhe').innerHTML=
-      `<strong>${posto}</strong><br>${litros.toFixed(2).replace('.',',')} L · R$ ${preco.toFixed(3).replace('.',',')}/L<br>Total: R$ ${total.toFixed(2).replace('.',',')}`;
+      `<strong>${postoNomeFinal}</strong><br>${litros.toFixed(2).replace('.',',')} L · R$ ${preco.toFixed(3).replace('.',',')}/L<br>Total: R$ ${total.toFixed(2).replace('.',',')}`;
     showScreen('sucesso');
   }catch(e){
     hideLoading();
@@ -796,12 +811,16 @@ function novoAbastecimento(){
   STATE.veiculoSelecionado=null;
   STATE.fotoBase64=null;
   STATE.fotoMediaType=null;
-  STATE.ocrData=null;
   document.getElementById('btn-veiculo-continuar').disabled=true;
   document.getElementById('btn-foto-continuar').disabled=true;
   document.getElementById('veic-search').value='';
+  document.getElementById('veic-error').style.display='none';
+  document.getElementById('veic-suggest-wrap').innerHTML='';
+  document.getElementById('veic-confirm-wrap').innerHTML='';
   removerFoto();
-  ['form-posto','form-litros','form-preco','form-total','form-km','form-km-ant','form-obs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('form-posto-novo').value='';
+  document.getElementById('form-posto-novo-wrap').classList.add('hidden');
+  ['form-litros','form-preco','form-total','form-km','form-km-ant','form-obs'].forEach(id=>document.getElementById(id).value='');
   goToVeiculo();
 }
 
