@@ -186,6 +186,18 @@ body{
 .search-wrap{position:relative;margin-bottom:14px}
 .search-wrap svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--text3)}
 .search-wrap input{padding-left:40px!important}
+
+/* HISTORICO LIST */
+.hist-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:14px;
+  padding:14px 16px;margin-bottom:10px;
+}
+.hist-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.hist-card-data{font-size:12px;color:var(--text3);font-weight:600}
+.hist-card-total{font-size:17px;font-weight:800;color:var(--text);letter-spacing:-0.02em}
+.hist-card-mid{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.hist-tag{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;background:var(--bg3);color:var(--text2);border:1px solid var(--border2)}
+.hist-card-bottom{font-size:12px;color:var(--text3);display:flex;justify-content:space-between}
 </style>
 </head>
 <body>
@@ -198,6 +210,9 @@ body{
     <div class="brand-name">FleetDiesel</div>
     <div class="brand-sub" id="topbar-sub">App do Motorista</div>
   </div>
+  <button class="topbar-action hidden" id="btn-historico" onclick="goToHistorico()" title="Meus abastecimentos">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  </button>
   <button class="topbar-action hidden" id="btn-logout" onclick="logout()" title="Sair">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
   </button>
@@ -329,10 +344,29 @@ body{
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Registrar outro abastecimento
       </button>
+      <button class="btn btn-ghost" style="margin-top:10px" onclick="goToHistorico()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Ver meus abastecimentos
+      </button>
     </div>
   </div>
 
-</div>
+  <!-- ═══════ TELA 6: MEUS ABASTECIMENTOS (HISTÓRICO) ═══════ -->
+  <div id="screen-historico" class="hidden">
+    <div class="card card-pad" style="margin-bottom:14px">
+      <div class="screen-title">Meus abastecimentos</div>
+      <div class="screen-sub" id="historico-sub">Seus últimos abastecimentos registrados.</div>
+    </div>
+    <div id="historico-empty" class="card card-pad text-center hidden">
+      <div style="color:var(--text3);font-size:13px;padding:20px 0">Você ainda não registrou nenhum abastecimento.</div>
+    </div>
+    <div id="historico-list"></div>
+  </div>
+
+  <!-- ═══════ TELA 7: EDITAR ABASTECIMENTO ═══════ -->
+  <div id="historico-spacer" style="height:1px"></div>
+
+
 
 <!-- FOOTER FIXO COM BOTÕES DE NAVEGAÇÃO -->
 <div class="footer-bar hidden" id="footer-veiculo">
@@ -348,6 +382,12 @@ body{
   <button class="btn btn-primary" id="btn-salvar" onclick="salvarAbastecimento()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
     Salvar
+  </button>
+</div>
+<div class="footer-bar hidden" id="footer-historico">
+  <button class="btn btn-secondary" onclick="goToVeiculoFromHistorico()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    Novo abastecimento
   </button>
 </div>
 
@@ -420,23 +460,27 @@ function formatCpfInput(input){
 // ═══════════════════════════════════════════════════════════════════════════
 // NAVEGAÇÃO ENTRE TELAS
 // ═══════════════════════════════════════════════════════════════════════════
-const SCREENS=['login','veiculo','foto','form','sucesso'];
-const FOOTERS=['','veiculo','foto','form',''];
+const SCREENS=['login','veiculo','foto','form','sucesso','historico'];
+const FOOTERS=['','veiculo','foto','form','','historico'];
 
 function showScreen(name){
   SCREENS.forEach(s=>document.getElementById('screen-'+s).classList.toggle('hidden',s!==name));
-  ['veiculo','foto','form'].forEach(f=>document.getElementById('footer-'+f).classList.toggle('hidden',f!==name));
+  ['veiculo','foto','form','historico'].forEach(f=>document.getElementById('footer-'+f).classList.toggle('hidden',f!==name));
   window.scrollTo(0,0);
 }
 
 function goToLogin(){
   showScreen('login');
   document.getElementById('btn-logout').classList.add('hidden');
+  document.getElementById('btn-historico').classList.add('hidden');
   document.getElementById('topbar-sub').textContent='App do Motorista';
 }
 function goToVeiculo(){
   showScreen('veiculo');
   document.getElementById('veic-search').focus();
+}
+function goToVeiculoFromHistorico(){
+  novoAbastecimento();
 }
 function goToFoto(){
   if(!STATE.veiculoSelecionado){toast('Selecione um veículo.',true);return;}
@@ -493,6 +537,7 @@ async function doLogin(){
     hideLoading();
     document.getElementById('topbar-sub').textContent=found.nome.split(' ').slice(0,2).join(' ');
     document.getElementById('btn-logout').classList.remove('hidden');
+    document.getElementById('btn-historico').classList.remove('hidden');
     toast(`Bem-vindo, ${found.nome.split(' ')[0]}!`);
     goToVeiculo();
   }catch(e){
@@ -805,6 +850,64 @@ async function salvarAbastecimento(){
     console.error(e);
     toast('Erro ao salvar. Verifique a conexão e tente novamente.',true);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HISTÓRICO — MEUS ABASTECIMENTOS (EDITAR / EXCLUIR)
+// ═══════════════════════════════════════════════════════════════════════════
+let STATE_HISTORICO=[];
+
+function fuelTagMini(tipo){
+  return`<span class="hist-tag">${tipo}</span>`;
+}
+
+async function goToHistorico(){
+  showScreen('historico');
+  document.getElementById('historico-list').innerHTML='';
+  document.getElementById('historico-empty').classList.add('hidden');
+  showLoading('Carregando seus abastecimentos…');
+
+  try{
+    const rows=await db(`abastecimentos?mot_id=eq.${STATE.motorista.id}&order=data.desc&limit=50`);
+    STATE_HISTORICO=rows;
+    hideLoading();
+    renderHistoricoList();
+  }catch(e){
+    hideLoading();
+    toast('Erro ao carregar histórico.',true);
+    console.error(e);
+  }
+}
+
+function renderHistoricoList(){
+  const listEl=document.getElementById('historico-list');
+  const emptyEl=document.getElementById('historico-empty');
+
+  if(!STATE_HISTORICO.length){
+    listEl.innerHTML='';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  emptyEl.classList.add('hidden');
+
+  listEl.innerHTML=STATE_HISTORICO.map(a=>{
+    const v=STATE.veiculos.find(x=>x.id===a.veic_id);
+    const p=STATE.postos.find(x=>x.id===a.posto_id);
+    const dataFmt=a.data?new Date(a.data+'T12:00').toLocaleDateString('pt-BR'):'—';
+    return`<div class="hist-card">
+      <div class="hist-card-top">
+        <span class="hist-card-data">${dataFmt}</span>
+        <span class="hist-card-total">R$ ${Number(a.total).toFixed(2).replace('.',',')}</span>
+      </div>
+      <div class="hist-card-mid">
+        ${v?`<span class="placa-badge-lg" style="font-size:11px;padding:2px 7px">${v.placa}</span>`:''}
+        ${fuelTagMini(a.tipo)}
+      </div>
+      <div class="hist-card-bottom">
+        <span>${p?p.nome:'Posto não identificado'} · ${Number(a.litros).toFixed(2).replace('.',',')} L</span>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function novoAbastecimento(){
