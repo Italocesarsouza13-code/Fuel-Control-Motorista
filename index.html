@@ -204,7 +204,7 @@ body{
 
 <div class="topbar">
   <div class="brand-icon">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 5h12M10 19a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm7 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="22" x2="15" y2="22"/><line x1="4" y1="9" x2="14" y2="9"/><path d="M4 22V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v18"/><path d="M14 7h2a2 2 0 0 1 2 2v3a1.5 1.5 0 0 0 3 0V7.5a1.5 1.5 0 0 0-.44-1.06l-2.5-2.5"/><circle cx="7" cy="13" r="1.4"/></svg>
   </div>
   <div class="brand-text">
     <div class="brand-name">FleetDiesel</div>
@@ -304,27 +304,28 @@ body{
       <div class="field-row">
         <div class="field">
           <label>Litros *</label>
-          <input type="number" id="form-litros" step="0.01" inputmode="decimal" placeholder="0,00">
+          <input type="number" id="form-litros" step="0.01" inputmode="decimal" placeholder="0,00" required>
         </div>
         <div class="field">
           <label>Preço/L *</label>
-          <input type="number" id="form-preco" step="0.001" inputmode="decimal" placeholder="0,000">
+          <input type="number" id="form-preco" step="0.001" inputmode="decimal" placeholder="0,000" required>
         </div>
       </div>
       <div class="field">
-        <label>Valor total (R$)</label>
-        <input type="number" id="form-total" step="0.01" inputmode="decimal" placeholder="Calculado automaticamente">
+        <label>Valor total (R$) *</label>
+        <input type="number" id="form-total" step="0.01" inputmode="decimal" placeholder="Calculado automaticamente" required>
       </div>
       <div class="field-row">
         <div class="field">
-          <label>Hodômetro atual (km)</label>
-          <input type="number" id="form-km" inputmode="numeric" placeholder="Ex: 345200">
+          <label>Hodômetro atual (km) *</label>
+          <input type="number" id="form-km" inputmode="numeric" placeholder="Ex: 345200" required oninput="updateMediaPreview()">
         </div>
         <div class="field">
           <label>Hodômetro anterior</label>
           <input type="number" id="form-km-ant" inputmode="numeric" placeholder="Auto" readonly style="opacity:0.6">
         </div>
       </div>
+      <div id="media-preview-wrap" class="hidden" style="margin-bottom:14px"></div>
       <div class="field">
         <label>Observações</label>
         <textarea id="form-obs" rows="2" placeholder="Opcional…"></textarea>
@@ -357,6 +358,7 @@ body{
       <div class="screen-title">Meus abastecimentos</div>
       <div class="screen-sub" id="historico-sub">Seus últimos abastecimentos registrados.</div>
     </div>
+    <div id="historico-resumo" class="hidden" style="margin-bottom:14px"></div>
     <div id="historico-empty" class="card card-pad text-center hidden">
       <div style="color:var(--text3);font-size:13px;padding:20px 0">Você ainda não registrou nenhum abastecimento.</div>
     </div>
@@ -744,11 +746,14 @@ function populateForm(){
 
   document.getElementById('form-data').value=document.getElementById('form-data').value||today();
   document.getElementById('form-sub').textContent='Preencha as informações do abastecimento.';
+  document.getElementById('media-preview-wrap').classList.add('hidden');
+  document.getElementById('media-preview-wrap').innerHTML='';
 
   // Hodômetro anterior
   if(STATE.veiculoSelecionado){
     calcKmAnterior(STATE.veiculoSelecionado.id).then(km=>{
       document.getElementById('form-km-ant').value=km||STATE.veiculoSelecionado.km_inicial||'';
+      updateMediaPreview();
     });
   }
 
@@ -762,7 +767,45 @@ document.addEventListener('input',e=>{
     const p=parseFloat(document.getElementById('form-preco').value)||0;
     if(l&&p)document.getElementById('form-total').value=(l*p).toFixed(2);
   }
+  if(e.target.id==='form-litros'){
+    updateMediaPreview();
+  }
 });
+
+function updateMediaPreview(){
+  const wrap=document.getElementById('media-preview-wrap');
+  const litros=parseFloat(document.getElementById('form-litros').value);
+  const km=parseInt(document.getElementById('form-km').value);
+  const kmAnt=parseInt(document.getElementById('form-km-ant').value);
+
+  if(!litros||litros<=0||!km||!kmAnt||km<=kmAnt){
+    wrap.classList.add('hidden');
+    wrap.innerHTML='';
+    return;
+  }
+
+  const distancia=km-kmAnt;
+  const media=distancia/litros;
+
+  let cor,corBg,corBorder,status;
+  if(media>=2.35){cor='var(--green)';corBg='var(--green-bg)';corBorder='rgba(34,197,94,0.3)';status='Consumo dentro do esperado';}
+  else if(media>=2.20){cor='var(--amber)';corBg='var(--amber-bg)';corBorder='rgba(245,158,11,0.3)';status='Consumo um pouco abaixo do ideal';}
+  else{cor='var(--red)';corBg='var(--red-bg)';corBorder='rgba(239,68,68,0.3)';status='Consumo baixo — verifique os dados';}
+
+  wrap.classList.remove('hidden');
+  wrap.innerHTML=`
+    <div style="background:${corBg};border:1px solid ${corBorder};border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px">Média desta viagem</div>
+        <div style="font-size:11.5px;color:var(--text3)">${distancia.toLocaleString('pt-BR')} km rodados</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:24px;font-weight:800;color:${cor};letter-spacing:-0.02em">${media.toFixed(2).replace('.',',')} <span style="font-size:13px;font-weight:600">km/L</span></div>
+        <div style="font-size:11px;color:${cor};font-weight:600">${status}</div>
+      </div>
+    </div>
+  `;
+}
 
 // Hook: quando a tela form é exibida, popula
 const origGoToForm=goToForm;
@@ -791,6 +834,8 @@ async function salvarAbastecimento(){
   if(postoSelVal==='__novo__'&&!postoNovoNome){toast('Digite o nome do novo posto.',true);return;}
   if(!litros||litros<=0){toast('Informe os litros corretamente.',true);return;}
   if(!preco||preco<=0){toast('Informe o preço por litro.',true);return;}
+  if(!total||total<=0){toast('Informe o valor total.',true);return;}
+  if(!km||km<=0){toast('Informe o hodômetro atual.',true);return;}
   if(!data){toast('Informe a data.',true);return;}
 
   const btn=document.getElementById('btn-salvar');
@@ -882,18 +927,67 @@ async function goToHistorico(){
 function renderHistoricoList(){
   const listEl=document.getElementById('historico-list');
   const emptyEl=document.getElementById('historico-empty');
+  const resumoEl=document.getElementById('historico-resumo');
 
   if(!STATE_HISTORICO.length){
     listEl.innerHTML='';
     emptyEl.classList.remove('hidden');
+    resumoEl.classList.add('hidden');
+    resumoEl.innerHTML='';
     return;
   }
   emptyEl.classList.add('hidden');
 
+  // ── Resumo geral: média ponderada por litros entre todos os registros com média válida ──
+  const comMedia=STATE_HISTORICO.filter(a=>a.km&&a.km_ant&&a.km>a.km_ant&&a.litros);
+  if(comMedia.length){
+    const totalKm=comMedia.reduce((s,a)=>s+(a.km-a.km_ant),0);
+    const totalL=comMedia.reduce((s,a)=>s+Number(a.litros),0);
+    const mediaGeral=totalKm/totalL;
+    const totalGasto=STATE_HISTORICO.reduce((s,a)=>s+Number(a.total||0),0);
+
+    let cor,corBg,corBorder;
+    if(mediaGeral>=2.35){cor='var(--green)';corBg='var(--green-bg)';corBorder='rgba(34,197,94,0.3)';}
+    else if(mediaGeral>=2.20){cor='var(--amber)';corBg='var(--amber-bg)';corBorder='rgba(245,158,11,0.3)';}
+    else{cor='var(--red)';corBg='var(--red-bg)';corBorder='rgba(239,68,68,0.3)';}
+
+    resumoEl.classList.remove('hidden');
+    resumoEl.innerHTML=`
+      <div style="background:${corBg};border:1px solid ${corBorder};border-radius:14px;padding:16px 18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em">Sua média geral</div>
+          <div style="font-size:11px;color:var(--text3)">${STATE_HISTORICO.length} abastecimento${STATE_HISTORICO.length!==1?'s':''}</div>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:30px;font-weight:800;color:${cor};letter-spacing:-0.03em">${mediaGeral.toFixed(2).replace('.',',')}</span>
+          <span style="font-size:14px;color:${cor};font-weight:600">km/L</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid ${corBorder}">
+          <span style="font-size:12px;color:var(--text3)">${totalKm.toLocaleString('pt-BR')} km rodados</span>
+          <span style="font-size:12px;color:var(--text3)">Total gasto: R$ ${totalGasto.toFixed(2).replace('.',',')}</span>
+        </div>
+      </div>
+    `;
+  }else{
+    resumoEl.classList.add('hidden');
+    resumoEl.innerHTML='';
+  }
+
+  // ── Lista de cards, cada um com sua própria média individual ──
   listEl.innerHTML=STATE_HISTORICO.map(a=>{
     const v=STATE.veiculos.find(x=>x.id===a.veic_id);
     const p=STATE.postos.find(x=>x.id===a.posto_id);
     const dataFmt=a.data?new Date(a.data+'T12:00').toLocaleDateString('pt-BR'):'—';
+
+    let mediaHtml='';
+    if(a.km&&a.km_ant&&a.km>a.km_ant&&a.litros){
+      const media=(a.km-a.km_ant)/Number(a.litros);
+      const cor=media>=2.35?'var(--green)':media>=2.20?'var(--amber)':'var(--red)';
+      mediaHtml=`<span style="font-weight:700;color:${cor}">${media.toFixed(2).replace('.',',')} km/L</span>`;
+    }else{
+      mediaHtml=`<span style="color:var(--text3)">Sem média</span>`;
+    }
+
     return`<div class="hist-card">
       <div class="hist-card-top">
         <span class="hist-card-data">${dataFmt}</span>
@@ -902,6 +996,7 @@ function renderHistoricoList(){
       <div class="hist-card-mid">
         ${v?`<span class="placa-badge-lg" style="font-size:11px;padding:2px 7px">${v.placa}</span>`:''}
         ${fuelTagMini(a.tipo)}
+        <span class="hist-tag" style="background:transparent;border:none;padding:0;margin-left:auto">${mediaHtml}</span>
       </div>
       <div class="hist-card-bottom">
         <span>${p?p.nome:'Posto não identificado'} · ${Number(a.litros).toFixed(2).replace('.',',')} L</span>
@@ -924,6 +1019,8 @@ function novoAbastecimento(){
   document.getElementById('form-posto-novo').value='';
   document.getElementById('form-posto-novo-wrap').classList.add('hidden');
   ['form-litros','form-preco','form-total','form-km','form-km-ant','form-obs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('media-preview-wrap').classList.add('hidden');
+  document.getElementById('media-preview-wrap').innerHTML='';
   goToVeiculo();
 }
 
